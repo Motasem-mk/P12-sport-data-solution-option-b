@@ -1,0 +1,21 @@
+# Python / Jupyter
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+*.ipynb
+
+# Environment / secrets
+.env
+venv/
+.venv/
+
+# Logs
+logs/
+airflow/logs/
+*.log
+
+# Archives
+*.zip
+
+# macOS
+.DS_Store

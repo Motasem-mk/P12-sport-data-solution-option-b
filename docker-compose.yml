@@ -1,0 +1,524 @@
+name: sport-data-solution
+
+networks:
+  sportnet:
+    name: sportnet
+
+volumes:
+  sport_pg_data:
+  sport_redpanda_data:
+  sport_metabase_data:
+  sport_airflow_pg_data:
+  spark_m2_cache:
+  spark_ivy_cache:
+  spark_tmp_data:
+services:
+
+  # ------------------------------------------------------------
+  # POSTGRES (hosts BOTH OLTP DB + OLAP DB)
+  # ------------------------------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres
+    environment:
+      # OLTP database used as Debezium source
+      POSTGRES_DB: ${SPORT_OLTP_DB}
+      POSTGRES_USER: ${SPORT_OLTP_USER}
+      POSTGRES_PASSWORD: ${SPORT_OLTP_PASSWORD}
+      # OLAP / Gold database information used by the pipeline
+      SPORT_OLAP_DB: ${SPORT_OLAP_DB}
+      SPORT_OLAP_USER: ${SPORT_OLAP_USER}
+      SPORT_OLAP_PASSWORD: ${SPORT_OLAP_PASSWORD}
+      TZ: Europe/Paris
+    command:
+      - postgres
+      - -c
+      - wal_level=logical
+      - -c
+      - max_wal_senders=10
+      - -c
+      - max_replication_slots=10
+      - -c
+      - max_connections=200
+    ports:
+      - "5432:5432"
+    volumes:
+      - sport_pg_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+      - ./sql:/opt/workspace/sql:ro
+      - ./scripts:/opt/workspace/scripts:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB -h localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    networks:
+      - sportnet
+
+  # ------------------------------------------------------------
+  # REDPANDA
+  # Kafka-compatible broker for CDC and streaming activity events
+  # ------------------------------------------------------------
+  redpanda:
+    image: redpandadata/redpanda:v23.3.13
+    container_name: redpanda
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp
+      - "1"
+      - --memory
+      - 1G
+      - --reserve-memory
+      - 0M
+      - --node-id
+      - "0"
+      - --check=false
+      - --kafka-addr
+      - PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr
+      - PLAINTEXT://redpanda:9092
+      - --pandaproxy-addr
+      - 0.0.0.0:8082
+      - --advertise-pandaproxy-addr
+      - redpanda:8082
+      - --rpc-addr
+      - 0.0.0.0:33145
+      - --advertise-rpc-addr
+      - redpanda:33145
+    ports:
+      - "9092:9092"
+      - "8082:8082"
+      - "9644:9644"
+    volumes:
+      - sport_redpanda_data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health --api-urls localhost:9644 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+    networks:
+      - sportnet
+
+  # ------------------------------------------------------------
+  # REDPANDA CONSOLE
+  # UI: http://localhost:8080
+  # ------------------------------------------------------------
+  redpanda-console:
+    image: redpandadata/console:latest
+    container_name: redpanda-console
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+      KAFKA_SCHEMAREGISTRY_ENABLED: "false"
+      REDPANDA_ADMINAPI_ENABLED: "true"
+      REDPANDA_ADMINAPI_URLS: http://redpanda:9644
+      CONNECT_ENABLED: "true"
+      CONNECT_CLUSTERS_0_NAME: connect
+      CONNECT_CLUSTERS_0_ADDRESS: http://connect:8083
+    ports:
+      - "8080:8080"
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      connect:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - sportnet
+
+  # ------------------------------------------------------------
+  # DEBEZIUM CONNECT
+  # Captures PostgreSQL changes and publishes them to Redpanda
+  # ------------------------------------------------------------
+  connect:
+    image: quay.io/debezium/connect:2.7.4.Final
+    container_name: connect
+    environment:
+      BOOTSTRAP_SERVERS: redpanda:9092
+      GROUP_ID: "1"
+      CONFIG_STORAGE_TOPIC: connect_configs
+      OFFSET_STORAGE_TOPIC: connect_offsets
+      STATUS_STORAGE_TOPIC: connect_status
+      CONFIG_STORAGE_REPLICATION_FACTOR: "1"
+      OFFSET_STORAGE_REPLICATION_FACTOR: "1"
+      STATUS_STORAGE_REPLICATION_FACTOR: "1"
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      REST_ADVERTISED_HOST_NAME: connect
+      REST_PORT: "8083"
+      TZ: Europe/Paris
+      CONNECT_PRODUCER_MAX_REQUEST_SIZE: "10485760"
+      CONNECT_CONSUMER_MAX_PARTITION_FETCH_BYTES: "10485760"
+      CONNECT_PLUGIN_PATH: /kafka/connect,/kafka/libs
+    ports:
+      - "8083:8083"
+    volumes:
+      - ./connectors/debezium:/connectors
+      - ./scripts:/scripts
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - sportnet
+
+  # ------------------------------------------------------------
+  # SPARK MASTER
+  # UI: http://localhost:8081
+  # ------------------------------------------------------------
+  spark-master:
+    build:
+      context: .
+      dockerfile: docker/spark/Dockerfile
+    image: sport-spark:local
+    pull_policy: never
+    container_name: spark-master
+    user: "0:0"
+    environment:
+      - SPARK_MODE=master
+      - SPARK_MASTER_HOST=spark-master
+      - SPARK_MASTER_PORT=7077
+      - SPARK_MASTER_WEBUI_PORT=8080
+      - TZ=Europe/Paris
+      - SPARK_CONF_DIR=/opt/bitnami/spark/conf-custom
+      - HOME=/root
+      - HADOOP_USER_NAME=root
+      - JAVA_TOOL_OPTIONS=-Dhttps.protocols=TLSv1.2 -Djdk.tls.client.protocols=TLSv1.2
+      # External API
+      - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}
+      # DB connectivity for Spark scripts
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - SPORT_OLTP_DB=${SPORT_OLTP_DB}
+      - SPORT_OLTP_USER=${SPORT_OLTP_USER}
+      - SPORT_OLTP_PASSWORD=${SPORT_OLTP_PASSWORD}
+      - SPORT_OLAP_DB=${SPORT_OLAP_DB}
+      - SPORT_OLAP_USER=${SPORT_OLAP_USER}
+      - SPORT_OLAP_PASSWORD=${SPORT_OLAP_PASSWORD}
+    ports:
+      - "7077:7077"
+      - "8081:8080"
+    volumes:
+      - spark_ivy_cache:/opt/bitnami/spark/ivy
+      - spark_m2_cache:/root/.m2
+      - ./data:/opt/workspace/data:delegated
+      - ./spark_jobs:/opt/workspace/spark_jobs:delegated
+      - ./scripts:/opt/workspace/scripts:delegated
+      - ./config:/opt/bitnami/spark/conf-custom:delegated
+      - spark_tmp_data:/opt/bitnami/spark/tmp
+      - ./logs:/opt/workspace/logs:delegated
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - sportnet
+
+  # ------------------------------------------------------------
+  # SPARK WORKER
+  # ------------------------------------------------------------
+  spark-worker:
+    build:
+      context: .
+      dockerfile: docker/spark/Dockerfile
+    image: sport-spark:local
+    pull_policy: never
+    container_name: spark-worker
+    user: "0:0"
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - TZ=Europe/Paris
+      - SPARK_CONF_DIR=/opt/bitnami/spark/conf-custom
+      - HOME=/root
+      - HADOOP_USER_NAME=root
+      - JAVA_TOOL_OPTIONS=-Dhttps.protocols=TLSv1.2 -Djdk.tls.client.protocols=TLSv1.2
+      # External API
+      - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}
+      # DB connectivity for Spark scripts
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - SPORT_OLTP_DB=${SPORT_OLTP_DB}
+      - SPORT_OLTP_USER=${SPORT_OLTP_USER}
+      - SPORT_OLTP_PASSWORD=${SPORT_OLTP_PASSWORD}
+      - SPORT_OLAP_DB=${SPORT_OLAP_DB}
+      - SPORT_OLAP_USER=${SPORT_OLAP_USER}
+      - SPORT_OLAP_PASSWORD=${SPORT_OLAP_PASSWORD}
+    volumes:
+      - spark_ivy_cache:/opt/bitnami/spark/ivy
+      - spark_m2_cache:/root/.m2
+      - ./data:/opt/workspace/data:delegated
+      - ./spark_jobs:/opt/workspace/spark_jobs:delegated
+      - ./scripts:/opt/workspace/scripts:delegated
+      - ./config:/opt/bitnami/spark/conf-custom:delegated
+      - spark_tmp_data:/opt/bitnami/spark/tmp
+      - ./logs:/opt/workspace/logs:delegated
+    depends_on:
+      spark-master:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - sportnet
+
+  # ------------------------------------------------------------
+  # METABASE
+  # BI dashboard tool
+  # UI: http://localhost:3000
+  # ------------------------------------------------------------
+  metabase:
+    image: metabase/metabase:latest
+    container_name: metabase
+    environment:
+      - MB_DB_FILE=/metabase-data/metabase.db
+      - JAVA_TIMEZONE=${MB_JAVA_TIMEZONE:-Europe/Paris}
+    ports:
+      - "3000:3000"
+    volumes:
+      - sport_metabase_data:/metabase-data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - sportnet
+
+  # ------------------------------------------------------------
+  # AIRFLOW INTERNAL POSTGRES
+  # Stores Airflow metadata: DAG runs, task states, users, etc.
+  # ------------------------------------------------------------
+  airflow-postgres:
+    image: postgres:15-alpine
+    container_name: airflow-postgres
+    environment:
+      POSTGRES_DB: airflow
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      TZ: Europe/Paris
+    volumes:
+      - sport_airflow_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow -h localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    networks:
+      - sportnet
+
+  # ------------------------------------------------------------
+  # AIRFLOW INIT
+  # Initializes Airflow metadata DB and creates the admin user.
+  # This container runs once, then exits successfully.
+  # ------------------------------------------------------------
+  airflow-init:
+    build:
+      context: .
+      dockerfile: docker/airflow/Dockerfile
+    image: sport-airflow:local
+    pull_policy: never
+    container_name: airflow-init
+    user: "0:0"
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-postgres:5432/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+      AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT: "120"
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+      AIRFLOW__WEBSERVER__WORKERS: "1"
+      AIRFLOW__WEBSERVER__WEB_SERVER_MASTER_TIMEOUT: "300"
+      AIRFLOW__WEBSERVER__WEB_SERVER_WORKER_TIMEOUT: "300"
+      PYTHONPATH: /opt/airflow/dags:/opt/airflow/plugins
+      AIRFLOW_ADMIN_USER: ${AIRFLOW_ADMIN_USER:-airflow}
+      AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-airflow}
+      AIRFLOW_ADMIN_EMAIL: ${AIRFLOW_ADMIN_EMAIL:-airflow@example.com}
+      AIRFLOW_UID: ${AIRFLOW_UID:-50000}
+      TZ: Europe/Paris
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+      # Project SQL files mounted for Airflow access
+      - ./sql:/opt/workspace/sql:ro
+    command:
+      - bash
+      - -c
+      - |
+        mkdir -p /opt/airflow/dags /opt/airflow/logs /opt/airflow/plugins
+        chown -R ${AIRFLOW_UID:-50000}:0 /opt/airflow
+
+        airflow db migrate
+
+        airflow users create \
+          --username ${AIRFLOW_ADMIN_USER:-airflow} \
+          --password ${AIRFLOW_ADMIN_PASSWORD:-airflow} \
+          --firstname Air \
+          --lastname Flow \
+          --role Admin \
+          --email ${AIRFLOW_ADMIN_EMAIL:-airflow@example.com} || true
+    depends_on:
+      airflow-postgres:
+        condition: service_healthy
+    networks:
+      - sportnet
+
+  # ------------------------------------------------------------
+  # AIRFLOW WEBSERVER
+  # UI: http://localhost:8088
+  # ------------------------------------------------------------
+  airflow-webserver:
+    build:
+      context: .
+      dockerfile: docker/airflow/Dockerfile
+    image: sport-airflow:local
+    pull_policy: never
+    container_name: airflow-webserver
+    user: "${AIRFLOW_UID:-50000}:0"
+    command: webserver
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-postgres:5432/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+      AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT: "120"
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+      AIRFLOW__WEBSERVER__WORKERS: "1"
+      AIRFLOW__WEBSERVER__WEB_SERVER_MASTER_TIMEOUT: "300"
+      AIRFLOW__WEBSERVER__WEB_SERVER_WORKER_TIMEOUT: "300"
+      AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session
+      PYTHONPATH: /opt/airflow/dags:/opt/airflow/plugins
+      TZ: Europe/Paris
+      # Project environment variables available to DAGs
+      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY}
+      SPORT_OLTP_DB: ${SPORT_OLTP_DB}
+      SPORT_OLTP_USER: ${SPORT_OLTP_USER}
+      SPORT_OLTP_PASSWORD: ${SPORT_OLTP_PASSWORD}
+      SPORT_OLAP_DB: ${SPORT_OLAP_DB}
+      SPORT_OLAP_USER: ${SPORT_OLAP_USER}
+      SPORT_OLAP_PASSWORD: ${SPORT_OLAP_PASSWORD}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
+      SLACK_PIPELINE_ALERTS_WEBHOOK_URL: ${SLACK_PIPELINE_ALERTS_WEBHOOK_URL}
+    ports:
+      - "8088:8080"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+      # Project folders mounted for DAG access
+      - ./scripts:/opt/workspace/scripts:delegated
+      - ./spark_jobs:/opt/workspace/spark_jobs:delegated
+      - ./sql:/opt/workspace/sql:ro
+      - ./data:/opt/workspace/data:delegated
+      - ./connectors:/opt/workspace/connectors:ro
+      # Allows Airflow tasks to run docker commands against other containers
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      airflow-postgres:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - sportnet
+
+  # ------------------------------------------------------------
+  # AIRFLOW SCHEDULER
+  # Reads DAGs and launches task executions.
+  # ------------------------------------------------------------
+  airflow-scheduler:
+    build:
+      context: .
+      dockerfile: docker/airflow/Dockerfile
+    image: sport-airflow:local
+    pull_policy: never
+    container_name: airflow-scheduler
+    user: "${AIRFLOW_UID:-50000}:0"
+    command: scheduler
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-postgres:5432/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+      AIRFLOW__CORE__DAG_FILE_PROCESSOR_TIMEOUT: 180    
+      AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT: "120"
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+      AIRFLOW__WEBSERVER__WORKERS: "1"
+      AIRFLOW__WEBSERVER__WEB_SERVER_MASTER_TIMEOUT: "300"
+      AIRFLOW__WEBSERVER__WEB_SERVER_WORKER_TIMEOUT: "300"
+      AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session
+      PYTHONPATH: /opt/airflow/dags:/opt/airflow/plugins
+      TZ: Europe/Paris
+      # Project environment variables available to DAGs
+      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY}
+      SPORT_OLTP_DB: ${SPORT_OLTP_DB}
+      SPORT_OLTP_USER: ${SPORT_OLTP_USER}
+      SPORT_OLTP_PASSWORD: ${SPORT_OLTP_PASSWORD}
+      SPORT_OLAP_DB: ${SPORT_OLAP_DB}
+      SPORT_OLAP_USER: ${SPORT_OLAP_USER}
+      SPORT_OLAP_PASSWORD: ${SPORT_OLAP_PASSWORD}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
+      SLACK_PIPELINE_ALERTS_WEBHOOK_URL: ${SLACK_PIPELINE_ALERTS_WEBHOOK_URL}
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+      # Project folders mounted for DAG access
+      - ./scripts:/opt/workspace/scripts:delegated
+      - ./spark_jobs:/opt/workspace/spark_jobs:delegated
+      - ./sql:/opt/workspace/sql:ro
+      - ./data:/opt/workspace/data:delegated
+      - ./connectors:/opt/workspace/connectors:ro
+      # Allows Airflow tasks to run docker commands against other containers
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      airflow-postgres:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      spark-master:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - sportnet
+
+  # ------------------------------------------------------------
+  # SLACK CONSUMER
+  # Consumes activity events from Redpanda and sends Slack messages.
+  # ------------------------------------------------------------
+  slack-consumer:
+    build:
+      context: ./docker/slack-consumer
+      dockerfile: Dockerfile
+    image: sport-slack-consumer:local
+    pull_policy: never
+    container_name: slack-consumer
+    environment:
+      - KAFKA_BROKERS=redpanda:9092
+      - KAFKA_TOPIC=sportdb.public.activities
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
+      - TZ=Europe/Paris
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      connect:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - sportnet

@@ -1,0 +1,42 @@
+{
+  "name": "pg-activities",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "plugin.name": "pgoutput",
+
+    "database.hostname": "postgres",
+    "database.port": "5432",
+    "database.user": "oltp",
+    "database.password": "oltp_pwd",
+    "database.dbname": "sportoltp",
+
+    "topic.prefix": "sportdb",
+
+    "slot.name": "debezium_activities",
+    "publication.autocreate.mode": "filtered",
+    "table.include.list": "public.activities",
+
+    "snapshot.mode": "initial",
+    "tombstones.on.delete": "false",
+
+    "transforms": "unwrap",
+    "transforms.unwrap.type": "io.debezium.transforms.ExtractNewRecordState",
+    "transforms.unwrap.drop.tombstones": "true",
+    "transforms.unwrap.delete.handling.mode": "rewrite",
+    "transforms.unwrap.add.fields": "op,ts_ms",
+
+    "decimal.handling.mode": "double",
+    "time.precision.mode": "adaptive_time_microseconds",
+
+    "topic.creation.default.replication.factor": "1",
+    "topic.creation.default.partitions": "1",
+    "topic.creation.default.cleanup.policy": "delete",
+    "topic.creation.default.compression.type": "lz4",
+    "topic.creation.default.retention.ms": "604800000",
+
+    "topic.creation.activities.include": "sportdb.public.activities",
+    "topic.creation.activities.replication.factor": "1",
+    "topic.creation.activities.partitions": "1",
+    "topic.creation.activities.cleanup.policy": "delete"
+  }
+}

@@ -1,0 +1,19 @@
+# --- Core Application Dependencies ---
+pyspark==3.5.1
+delta-spark==3.2.0
+pandas
+requests
+confluent-kafka
+psycopg2-binary
+great-expectations==0.17.22
+python-dotenv
+openpyxl      # for reading the Excel HR/sport files with pandas
+pyarrow       # parquet/arrow support (Spark & pandas interoperability)
+
+# --- Airflow Providers (Brought over from your old Dockerfile) ---
+apache-airflow-providers-docker
+apache-airflow-providers-postgres
+apache-airflow-providers-common-sql
+
+# --- New Airflow Providers (Constrained to prevent Spark 4.x loops) ---
+apache-airflow-providers-apache-spark==4.1.3
