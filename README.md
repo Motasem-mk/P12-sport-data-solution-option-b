@@ -2359,7 +2359,7 @@ GOOGLE_MAPS_API_KEY=your_google_maps_api_key_here
 SLACK_WEBHOOK_URL=your_slack_webhook_url_here
 SLACK_PIPELINE_ALERTS_WEBHOOK_URL=your_pipeline_alerts_webhook_url_here
 ```
-
+Do not commit the real `.env` file.
 
 ### 18.3 Start the containers
 
