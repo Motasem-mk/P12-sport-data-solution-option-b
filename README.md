@@ -2299,19 +2299,19 @@ The dashboard includes:
 
 #### Executive KPIs
 
-![Metabase Dashboard - KPIs](docs/screenshots/metabase_dashboard_kpis.png)
+![Metabase Dashboard - KPIs](dashboard/screenshots/metabase_dashboard_kpis.png)
 
 #### Activity, Finance, and Data Quality Monitoring
 
-![Metabase Dashboard - Activity and Finance](docs/screenshots/metabase_dashboard_activity_finance.png)
+![Metabase Dashboard - Activity and Finance](dashboard/screenshots/metabase_dashboard_activity_finance.png)
 
 #### Quality and Benefits Details
 
-![Metabase Dashboard - Quality and Benefits](docs/screenshots/metabase_dashboard_quality_benefits.png)
+![Metabase Dashboard - Quality and Benefits](dashboard/screenshots/metabase_dashboard_quality_benefits.png)
 
 #### Full Dashboard
 
-![Metabase Dashboard - Full View](docs/screenshots/metabase_dashboard_full.png)
+![Metabase Dashboard - Full View](dashboard/screenshots/metabase_dashboard_full.png)
 
 ### Why This Meets the Project Requirement
 
@@ -2329,10 +2329,9 @@ The dashboard demonstrates that the automated data pipeline produces usable busi
 Clone the project repository from GitHub:
 
 ```bash
-git clone https://github.com/Motasem-mk/p12.git
-cd p12
+git clone https://github.com/Motasem-mk/P12-sport-data-solution-option-b.git
+cd P12-sport-data-solution-option-b
 ```
-
 
 ### 18.2 Create the environment file
 
@@ -2361,7 +2360,6 @@ SLACK_WEBHOOK_URL=your_slack_webhook_url_here
 SLACK_PIPELINE_ALERTS_WEBHOOK_URL=your_pipeline_alerts_webhook_url_here
 ```
 
-Do not commit the real `.env` file.
 
 ### 18.3 Start the containers
 
