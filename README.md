@@ -2285,20 +2285,13 @@ dashboard/
 
 ### 18.1 Clone the repository
 
-Replace the URL below with the final GitHub repository URL after creating the repository.
-
-Recommended repository name:
-
-```text
-sport-data-solution-option-b
-```
-
-Example:
+Clone the project repository from GitHub:
 
 ```bash
-git clone https://github.com/Motasem-mk/sport-data-solution-option-b.git
-cd sport-data-solution-option-b
+git clone https://github.com/Motasem-mk/p12.git
+cd p12
 ```
+
 
 ### 18.2 Create the environment file
 
