@@ -246,7 +246,7 @@ P12-sport-data-solution-option-b/
 │   ├── 02_create_gold_schema_tables_params_and_views.sql
 │   └── demo_activity_source_change.sql
 │
-└── dashboard/
+└── docs/
 │   └── screenshots/
 │       ├── metabase_dashboard_full.png
 │       ├── metabase_dashboard_kpis.png
@@ -2299,19 +2299,19 @@ The dashboard includes:
 
 #### Executive KPIs
 
-![Metabase Dashboard - KPIs](dashboard/screenshots/metabase_dashboard_kpis.png)
+![Metabase Dashboard - KPIs](docs/screenshots/metabase_dashboard_kpis.png)
 
 #### Activity, Finance, and Data Quality Monitoring
 
-![Metabase Dashboard - Activity and Finance](dashboard/screenshots/metabase_dashboard_activity_finance.png)
+![Metabase Dashboard - Activity and Finance](docs/screenshots/metabase_dashboard_activity_finance.png)
 
 #### Quality and Benefits Details
 
-![Metabase Dashboard - Quality and Benefits](dashboard/screenshots/metabase_dashboard_quality_benefits.png)
+![Metabase Dashboard - Quality and Benefits](docs/screenshots/metabase_dashboard_quality_benefits.png)
 
 #### Full Dashboard
 
-![Metabase Dashboard - Full View](dashboard/screenshots/metabase_dashboard_full.png)
+![Metabase Dashboard - Full View](docs/screenshots/metabase_dashboard_full.png)
 
 ### Why This Meets the Project Requirement
 
