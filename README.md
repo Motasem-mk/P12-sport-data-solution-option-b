@@ -2535,6 +2535,78 @@ For a production version, the following improvements would be recommended.
 * add automatic source-change detection for HR and sportive systems.
 
 ---
+## Reporting Dashboard — Metabase
+
+A Metabase dashboard was created as the PowerBI-equivalent reporting layer for this POC.
+
+The dashboard is connected to the PostgreSQL OLAP Gold schema and uses the reporting views created on top of the Gold star-schema tables.
+
+> Note: the values shown in the screenshots are based on synthetic POC data. They are used to validate the architecture, the KPI logic, and the dashboard functionality, not to represent real company results.
+
+### Dashboard Objectives
+
+The dashboard answers the main business questions requested by Juliette:
+
+* How many employees and sport activities are included in the analysis?
+* How many employees are eligible for the sport commute bonus?
+* What is the estimated annual financial impact of the bonus?
+* How many employees are eligible for wellbeing days?
+* Which sports are most practiced by employees?
+* How does activity evolve month by month?
+* Are there data quality issues that could affect bonus or wellbeing calculations?
+* Can recent activities be inspected after pipeline execution?
+
+### Main Dashboard Sections
+
+The dashboard includes:
+
+1. **Executive KPIs**
+   Shows total employees, total activities, bonus eligible employees, annual bonus cost, wellbeing eligible employees, granted wellbeing days, participation rate, and commute issues.
+
+2. **Activity Monitoring**
+   Shows monthly active employees and monthly activity volume.
+
+3. **Financial Impact**
+   Shows the annual bonus cost by business unit.
+
+4. **Sport Distribution**
+   Shows the number of activities by sport type.
+
+5. **Data Quality Checks**
+   Shows the result of quality controls such as invalid commute declarations, missing employee references, negative activity distance, and invalid activity dates.
+
+6. **Latest Activities**
+   Provides an operational view of recent activities reaching the Gold reporting layer.
+
+7. **Wellbeing and Employee Benefits**
+   Shows wellbeing eligibility status and employee-level benefit details.
+
+### Dashboard Screenshots
+
+#### Executive KPIs
+
+![Metabase Dashboard - KPIs](docs/screenshots/metabase_dashboard_kpis.png)
+
+#### Activity, Finance, and Data Quality Monitoring
+
+![Metabase Dashboard - Activity and Finance](docs/screenshots/metabase_dashboard_activity_finance.png)
+
+#### Quality and Benefits Details
+
+![Metabase Dashboard - Quality and Benefits](docs/screenshots/metabase_dashboard_quality_benefits.png)
+
+#### Full Dashboard
+
+![Metabase Dashboard - Full View](docs/screenshots/metabase_dashboard_full.png)
+
+### Why This Meets the Project Requirement
+
+The project requires a reporting deliverable using PowerBI or an equivalent tool.
+Metabase was used as the equivalent dashboarding tool because it connects directly to the PostgreSQL OLAP Gold layer and allows business users to explore KPIs, trends, financial impact, and data quality checks.
+
+The dashboard demonstrates that the automated data pipeline produces usable business indicators from the Gold layer and that those indicators can be refreshed after new activities, source changes, or business parameter changes.
+
+---
 
 ## 25. Conclusion
 
@@ -2560,4 +2632,3 @@ It includes:
 * source refresh and recalculation strategy.
 
 The solution is robust enough for a POC and provides a clear path toward a production-grade architecture.
-# p12
