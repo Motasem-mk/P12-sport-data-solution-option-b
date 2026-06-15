@@ -132,12 +132,12 @@ def main() -> None:
     ))
 
     # Table row count should not be "too small" or "insanely large"
-    # (you can adjust these bounds later if needed)
+
     checks.append((
         "row_count_reasonable",
         ge_df.expect_table_row_count_to_be_between(
             min_value=10,          # at least 10 rows
-            max_value=10_000_000,  # arbitrary large upper bound
+            max_value=10_000_000,  
         ),
     ))
 
