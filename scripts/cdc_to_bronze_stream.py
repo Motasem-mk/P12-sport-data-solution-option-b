@@ -23,7 +23,7 @@ def build_spark() -> SparkSession:
     return (
         SparkSession.builder
         .appName("CDC_To_Bronze_Activities")
-        .config("spark.sql.session.timeZone", "UTC")  # ✅ NEW: stable timestamps
+        .config("spark.sql.session.timeZone", "UTC")  
         .getOrCreate()
     )
 
@@ -36,7 +36,6 @@ def _path_exists(spark: SparkSession, path: str) -> bool:
 
 
 def _assert_delta_or_empty(spark: SparkSession, path: str) -> None:
-    #  refuse to write into non-delta location
     if _path_exists(spark, path) and not DeltaTable.isDeltaTable(spark, path):
         raise RuntimeError(f"Refusing to write: path exists but is NOT a Delta table: {path}")
 
@@ -70,8 +69,7 @@ def main():
         F.col("timestamp").alias("kafka_timestamp"),
         F.col("key").cast("string").alias("kafka_key_str"),
         F.col("value").cast("string").alias("kafka_value_str"),
-        # Optional debugging gold:
-        # F.col("value").alias("kafka_value_bytes"),
+   
     )
 
     writer = (
