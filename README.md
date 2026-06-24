@@ -1,4 +1,5 @@
-# Sport Data Solution — Option B
+# Project 12 : Gérez un projet d'infrastructure
+## Sport Data Solution — Option B
 
 ## Automated Data Architecture POC with Airflow, Spark, Redpanda, Debezium, Delta Lake and Metabase
 
